@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Build and test output
+dist/
+build/
+coverage/
+.vite/
+*.tsbuildinfo
+
+# Logs and local OS files
+*.log
+.DS_Store
+Thumbs.db
