@@ -1,0 +1,13 @@
+{
+  "name": "api-guardian",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "guardian": "npm --prefix guardian run guardian"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}

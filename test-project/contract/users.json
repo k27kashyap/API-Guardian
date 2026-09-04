@@ -1,0 +1,12 @@
+{
+  "endpoint": "/api/users",
+  "method": "GET",
+  "response": {
+    "type": "array",
+    "items": {
+      "id": "number",
+      "name": "string",
+      "email": "string"
+    }
+  }
+}
