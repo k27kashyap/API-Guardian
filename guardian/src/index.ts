@@ -1,6 +1,7 @@
-import fs from "node:fs";
 import { discoverApis } from "./api-discover.js";
+import { checkContract } from "./contract-checker.js";
 import { scanProject } from "./project-scanner.js";
+import { loadContracts } from "./contract-loader.js";
 import { analyzeResponse } from "./response-analyzer.js";
 
 const command = process.argv[2];
@@ -24,6 +25,19 @@ if(command == "analyze"){
     console.log(`  Backend:  ${structure.backend ? "found" : "not found"}`);
     console.log(`  Contract: ${structure.contract ? "found" : "not found"}`);
 
+    const contracts = loadContracts(path);
+
+    console.log("");
+    console.log("Contracts:");
+
+    if(contracts.length === 0){
+        console.log("  No contracts found.");
+    } else {
+        for(const contract of contracts){
+            console.log(`  ${contract.method} ${contract.endpoint}`);
+        }
+    }
+
     const apis = discoverApis(path);
     console.log("");
     console.log("Discovered APIs: ");
@@ -31,18 +45,34 @@ if(command == "analyze"){
     if(apis.length === 0){
         console.log(" No APIs found");
     } else{
-        for(const api of apis){
+       for (const api of apis) {
             console.log(`  ${api.method} ${api.path}`);
-            const content = fs.readFileSync(api.file, "utf-8");
-            const res = analyzeResponse(content);
+            const response = analyzeResponse(api.file);
 
-            if(res){
-                console.log(`  Response type: ${res.type}`);
+            if (!response) {
+                console.log("    Could not analyze response.");
+                continue;
+            }
 
-                if(res.fields){
-                    for(const field of res.fields){
-                        console.log(`   ${field.name}: ${field.type}`);
-                    }
+            const contract = contracts.find(
+                (contract) =>
+                    contract.method === api.method &&
+                    contract.endpoint === api.path
+            );
+
+            if (!contract) {
+                console.log("    ⚠ No contract found.");
+                continue;
+            }
+
+            const result = checkContract(contract, response);
+
+            if (result.matches) {
+                console.log("    ✓ Contract matches backend response.");
+            } else {
+                console.log("    ✗ Contract mismatch:");
+                for (const issue of result.issues) {
+                    console.log(`      - ${issue}`);
                 }
             }
         }

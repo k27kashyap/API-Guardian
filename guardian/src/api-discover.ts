@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import * as ts from "typescript";
 
 export type ApiEndpoint = {
     method: string;
@@ -9,27 +10,67 @@ export type ApiEndpoint = {
 
 export function discoverApis(projectPath : string): ApiEndpoint[] {
     const bePath = path.resolve(projectPath, "backend");
-    const indexPath = path.join(bePath, "src", "index.ts");
+    const sourcePath = path.join(bePath, "src");
 
-    if(!fs.existsSync(indexPath)){
+    if(!fs.existsSync(sourcePath)){
         return [];
     }
 
-    const content = fs.readFileSync(indexPath, "utf-8");
+    const files = getTypeScriptFiles(sourcePath);
+    const endpoints: ApiEndpoint[] = [];
 
-    const endPoints: ApiEndpoint[] = [];
+    for (const file of files){
 
-    const routeRegex = /app\.(get|post|put|patch|delete)\(["']([^"']+)["']/g;
+        const content = fs.readFileSync(file, "utf-8");
 
-    let match;
+        const sourceFile = ts.createSourceFile(
+            file,
+            content,
+            ts.ScriptTarget.Latest,
+            true,
+            ts.ScriptKind.TS
+        );
 
-    while((match = routeRegex.exec(content)) !== null){
-        endPoints.push({
-            method: match[1].toUpperCase(),
-            path: match[2],
-            file: indexPath,
-        });
+        function visit(node: ts.Node) {
+            if(ts.isCallExpression(node)){
+                const expression = node.expression;
+
+                if(ts.isPropertyAccessExpression(expression) && ts.isIdentifier(expression.expression)) {
+                    const method = expression.name.text.toUpperCase();
+                    const firstArg = node.arguments[0];
+
+                    if(firstArg && ts.isStringLiteral(firstArg) && ["GET", "POST", "PUT", "PATCH", "DELETE"].includes(method)){
+                        endpoints.push({
+                            method,
+                            path: firstArg.text,
+                            file,
+                        });
+                    }
+                }
+            }
+            ts.forEachChild(node,visit);
+        }
+
+        visit(sourceFile);
     }
+    return endpoints;
+}
 
-    return endPoints;
+function getTypeScriptFiles(directory: string) : string[] {
+    const files : string[] = [];
+
+    const entries = fs.readdirSync(directory, {
+        withFileTypes: true,
+    });
+
+    for(const entry of entries){
+        const fullPath = path.join(directory, entry.name);
+
+        if(entry.isDirectory()){
+            files.push(...getTypeScriptFiles(fullPath));
+        } else if(entry.isFile() && entry.name.endsWith(".ts")){
+            files.push(fullPath);
+        }
+    }
+    return files;
 }

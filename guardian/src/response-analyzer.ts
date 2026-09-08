@@ -1,64 +1,120 @@
+import fs from "node:fs";
+import ts from "typescript";
+
 export type ResponseField = {
-    name: string;
-    type: string;
-}
+  name: string;
+  type: string;
+};
 
 export type ApiResponse = {
-    type: string;
-    fields?: ResponseField[];
-}
+  type: string;
+  fields?: ResponseField[];
+};
 
-export function analyzeResponse(content: string) : ApiResponse | null {
-    const resJsonMatch = content.match(/res\.json\(\s*(\[[\s\S]*?\]|\{[\s\S]*?\})\s*\)/);
+export function analyzeResponse(
+  filePath: string,
+): ApiResponse | null {
+  const content = fs.readFileSync(filePath, "utf-8");
 
-    if(!resJsonMatch){
-        return null;
+  const sourceFile = ts.createSourceFile(
+    filePath,
+    content,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+
+  let result: ApiResponse | null = null;
+
+  function visit(node: ts.Node) {
+    if (result) {
+      return;
     }
 
-    const res = resJsonMatch[1];
+    if (ts.isCallExpression(node)) {
+      const expression = node.expression;
 
-    if (res.startsWith("[")){
-        const objectMatch = res.match(/\{\s*([\s\S]*?)\s*\}/);
+      if (
+        ts.isPropertyAccessExpression(expression) &&
+        expression.name.text === "json"
+      ) {
+        const object = expression.expression;
 
-        if(!objectMatch){
-            return {
-                type: "array",
-            };
+        if (ts.isIdentifier(object) && object.text === "res") {
+          const argument = node.arguments[0];
+
+          if (argument) {
+            result = analyzeExpression(argument);
+            return;
+          }
         }
+      }
+    }
 
+    ts.forEachChild(node, visit);
+  }
+
+  function analyzeExpression(node: ts.Expression): ApiResponse {
+    if (ts.isArrayLiteralExpression(node)) {
+      const firstElement = node.elements[0];
+
+      if (firstElement && ts.isObjectLiteralExpression(firstElement)) {
         const fields: ResponseField[] = [];
-        const fieldRegex = /(\w+)\s*:\s*([^,\n}]+)/g;
 
-        let match;
+        for (const property of firstElement.properties) {
+          if (!ts.isPropertyAssignment(property)) {
+            continue;
+          }
 
-        while((match = fieldRegex.exec(objectMatch[1])) !== null){
-            const value = match[2].trim();
+          const name = property.name.getText(sourceFile);
+          const type = getExpressionType(property.initializer);
 
-            let type = "unknown";
-
-            if(!isNaN(Number(value))){
-                type = "number";
-            } else if(
-                value.startsWith('"') || value.startsWith("'")
-            ) {
-                type = "string";
-            } else if (value === "true" || value === "false"){
-                type = "boolean";
-            }
-
-            fields.push({
-                name: match[1],
-                type,
-            });
+          fields.push({
+            name,
+            type,
+          });
         }
 
         return {
-            type: "array",
-            fields,
+          type: "array",
+          fields,
         };
+      }
+
+      return {
+        type: "array",
+      };
+    }
+
+    if (ts.isObjectLiteralExpression(node)) {
+      return {
+        type: "object",
+      };
     }
 
     return {
-        type: "object",
+      type: "unknown",
     };
+  }
+
+  function getExpressionType(node: ts.Expression): string {
+    if (ts.isNumericLiteral(node)) {
+      return "number";
+    }
+
+    if (ts.isStringLiteral(node)) {
+      return "string";
+    }
+
+    if (node.kind === ts.SyntaxKind.TrueKeyword ||
+        node.kind === ts.SyntaxKind.FalseKeyword) {
+      return "boolean";
+    }
+
+    return "unknown";
+  }
+
+  visit(sourceFile);
+
+  return result;
 }
